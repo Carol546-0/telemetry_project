@@ -1,187 +1,170 @@
-Here is a **clean, ready-to-submit README.md** you can use. It includes **build instructions, usage examples, batching decision, and field-packing strategy**, written in a clear academic/technical style.
+Telemetry Project – UDP Client/Server System
+Project Overview
 
----
+This project implements a UDP-based telemetry system where a client periodically sends telemetry data (sensor readings, timestamps, and sequence numbers) to a server.
+The server logs received packets and computes performance metrics such as latency, packet loss, duplication, batching efficiency, and throughput.
+Network impairments (loss, duplication, jitter) are emulated using Linux tc netem, and packet behavior is validated using PCAP captures.
 
-# Telemetry Client–Server System
+Directory Contents
+Core Programs
 
-## Overview
+Client.py – Telemetry client that generates and sends UDP packets
 
-This project implements a **UDP-based telemetry system** consisting of a Python client and server.
-The client periodically sends telemetry packets containing sensor data, timestamps, and sequence numbers, while the server receives, processes, and logs the packets to CSV files for performance analysis (latency, loss, duplication, throughput, and batching efficiency).
+Server.py – UDP server that receives packets and logs them to CSV
 
----
+Analysis & Plotting
 
-## Build / Setup Instructions
+calc.py – Computes metrics from received_data.csv
 
-### Requirements
+graphs.py – Plots loss/duplication experiment results
 
-* Python **3.8+**
-* Linux / WSL (for `tc netem`)
-* Required Python packages:
+graph1.py – Plots interval-related results
 
-  ```bash
-  pip install matplotlib numpy psutil
-  ```
+best_N.py – Batch size performance evaluation
 
-### Files
+Experiment Scripts
 
-* `Client.py` – Telemetry data generator and sender
-* `Server.py` – UDP server and packet logger
-* `calc.py` – Metric calculation from CSV logs
-* `graph*.py` – Plotting scripts
-* `*.sh` – Experiment automation scripts
+baseline.sh – Baseline experiment (no network impairment)
 
----
+loss_test.sh – Packet loss experiments
 
-## Running the System
+loss_dup_graph.sh – Loss + duplication sweep
 
-### 1. Start the Server
+jitter_test.sh – Jitter experiments
 
-```bash
+interval_graph.sh – Reporting interval sweep
+
+Data & Logs
+
+received_data.csv – Raw server-side packet logs
+
+results.csv – Aggregated experiment metrics
+
+*.pcap – Wireshark packet captures
+
+baseline.pcap
+
+loss_5percent_test.pcap
+
+jitter_test.pcap
+
+netem_commands_*.log – Applied tc netem configurations
+
+Build / Setup Instructions
+Requirements
+
+Python 3.8+
+
+Linux / WSL (required for tc netem)
+
+Python packages:
+
+pip install matplotlib numpy psutil
+
+Running the System
+1. Start the Server
 python3 Server.py
-```
 
-The server listens for UDP packets and logs received data to:
 
-```
+The server listens for UDP telemetry packets and logs them to:
+
 received_data.csv
-```
 
----
-
-### 2. Start the Client
-
-```bash
+2. Start the Client
 python3 Client.py --interval 0.1
-```
 
-**Arguments**
 
-* `--interval` : Reporting interval in seconds (e.g., `0.05`, `0.1`, `0.5`, `1.0`)
+Arguments
 
-The client sends telemetry packets continuously until stopped.
+--interval : Telemetry reporting interval in seconds
 
----
+The client runs continuously until manually stopped.
 
-### 3. Run Automated Experiments
+3. Run Automated Experiments
 
 Examples:
 
-```bash
-./interval_sweep.sh
-./loss_sweep.sh
-```
+./baseline.sh
+./loss_test.sh
+./jitter_test.sh
+./interval_graph.sh
+
 
 These scripts:
 
-* Apply network conditions (loss, duplication)
-* Run client/server for a fixed duration
-* Collect metrics and generate plots
+Apply network conditions using tc netem
 
----
+Run client and server for a fixed duration
 
-## Usage Examples
+Generate CSV metrics and plots automatically
 
-### Interval Sweep
+Batching Decision
 
-```bash
-python3 Client.py --interval 0.05
-python3 Client.py --interval 0.5
-```
+To improve network efficiency, the client supports batch telemetry messages.
 
-Used to analyze how reporting frequency affects throughput and latency.
+Multiple sensor readings are grouped into a single UDP packet (message type 3).
 
-### Loss & Duplication Sweep
+This reduces:
 
-Uses Linux `tc netem`:
+Header overhead per measurement
 
-```bash
-tc qdisc add dev eth0 root netem loss 2% duplicate 5%
-```
+Packet rate
 
----
+CPU processing cost
 
-## Batching Decision
+Batching was experimentally evaluated using best_N.py to determine how batch size affects throughput and latency.
 
-To reduce protocol overhead and improve throughput, the client supports **batch messages** (message type 3).
+Trade-off:
 
-* Instead of sending one sensor value per packet, multiple values are grouped into a single UDP packet.
-* This reduces:
+Larger batches → higher throughput, higher latency
 
-  * Header overhead per measurement
-  * CPU processing cost per report
-  * Packet rate on the network
+Smaller batches → lower latency, higher overhead
 
-Batch sizes are configurable and were experimentally evaluated to determine an optimal trade-off between throughput and latency.
+Field-Packing Strategy
 
-**Rationale:**
+A compact binary encoding is used to minimize packet size.
 
-> Larger batches increase throughput but may increase latency; smaller batches reduce latency but increase overhead.
-
----
-
-## Field-Packing Strategy
-
-A **compact binary packet format** is used to minimize packet size and parsing cost.
-
-### Header Format
-
-```text
+Header Format (12 bytes)
 !H I f B B
-```
 
-| Field           | Size    | Description                |
-| --------------- | ------- | -------------------------- |
-| Device ID       | 2 bytes | Assigned by server         |
-| Sequence Number | 4 bytes | Monotonic packet counter   |
-| Timestamp       | 4 bytes | Seconds since client start |
-| Message Type    | 1 byte  | Single, control, or batch  |
-| Flags           | 1 byte  | Reserved                   |
+Field	Size	Description
+Device ID	2 bytes	Assigned by server
+Sequence Number	4 bytes	Monotonic counter
+Timestamp	4 bytes	Seconds since client start
+Message Type	1 byte	Single / control / batch
+Flags	1 byte	Reserved
+Payload
 
-Total header size: **12 bytes**
+Sensor values packed as 32-bit floats
 
-### Payload
+Batch messages concatenate multiple float values
 
-* Sensor values packed as **32-bit floats**
-* Batch messages concatenate multiple float values
-* Packet size is capped to prevent UDP fragmentation
+Payload size is capped to avoid UDP fragmentation
 
-### Footer
+Footer
 
-* `bytes_sent` field appended to payload to support accurate throughput calculation
+bytes_sent field appended to support accurate throughput calculation
 
----
+PCAP Validation
 
-## PCAP and Metrics Validation
+Wireshark PCAP files (*.pcap) were captured during experiments to validate:
 
-Wireshark PCAP captures were used to validate:
+Packet loss and duplication
 
-* Packet ordering
-* Loss and duplication
-* Inter-arrival times
+Out-of-order delivery
 
-These observations match the metrics computed from server CSV logs.
+Inter-arrival timing
 
----
+Observations from PCAP analysis directly match the metrics calculated from CSV logs.
 
-## Output Files
+Output Files
 
-* `received_data.csv` – Raw packet logs
-* `results.csv` – Aggregated performance metrics
-* Graphs: throughput, latency, efficiency vs parameters
+received_data.csv – Per-packet telemetry logs
 
----
+results.csv – Aggregated metrics per experiment
 
-## Summary
+Graphs showing latency, loss, throughput, and efficiency trends
 
-This system demonstrates an efficient telemetry transport using UDP, batching, and compact binary encoding. Experimental evaluation shows how batching and reporting intervals impact network efficiency, latency, and reliability.
+Summary
 
----
-
-If you want, I can:
-
-* **Shorten this to a 1-page README**
-* **Rewrite it in more formal academic language**
-* **Adapt it exactly to your course rubric**
-
-Just tell me.
+This project demonstrates a UDP telemetry system using batching and compact field packing. Controlled experiments show how batching, reporting interval, and network impairments affect performance, reliability, and efficiency.
